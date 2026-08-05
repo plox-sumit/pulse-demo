@@ -1,54 +1,84 @@
-# Pushing the demo repo
+# The demo repository
 
-Pulse needs a real repo with a real red build. This one fails for a real reason:
-`app.py` imports `backoff`, `requirements.txt` doesn't declare it.
+A deliberately breakable sample service. Pulse needs a **real** repo with a
+**real** red build — a mocked failure would not be judged, and would not
+exercise the log-reading path at all.
 
-Verified locally — in a clean venv with only `requirements.txt` installed:
+This directory is committed as-is so anyone can reproduce the demo. The live
+copy used for the recording is [plox-sumit/pulse-demo](https://github.com/plox-sumit/pulse-demo).
+
+## The break
+
+`app.py` retries transient upload failures. The retry budget and the failure
+threshold have to agree:
+
+```python
+@backoff.on_exception(backoff.expo, UploadError, max_tries=3, jitter=None)
+def upload(payload, _attempts=None):
+    if _attempts is not None:
+        _attempts.append(payload)
+        if len(_attempts) < 3:          # succeeds on the third attempt
+            raise UploadError(...)
+```
+
+Change `max_tries=3` to `max_tries=2` — as if tightening latency — and they no
+longer agree. Backoff gives up after two tries; the success path on attempt
+three is never reached.
 
 ```
-E   ModuleNotFoundError: No module named 'backoff'
-1 error in 0.18s
+FAILED test_app.py::test_upload_retries_transient_failures
+1 failed, 3 passed
 ```
 
-…and with `backoff` installed, `4 passed`. So the fix Pulse suggests is provably correct.
+**Three of four tests still pass.** That is what makes it realistic: nothing
+obviously exploded, and the error message alone does not explain the cause.
+Reading `ModuleNotFoundError` off a log is pattern-matching; connecting
+`max_tries=2` to a test expecting three attempts is reasoning.
 
-## 1. Create an empty PUBLIC repo on GitHub
+## Set it up
 
-Name it `pulse-demo`. **Do not** add a README, .gitignore, or licence — it must be empty.
+1. Create an empty **public** repo named `pulse-demo`. No README, no .gitignore,
+   no licence — it must be empty.
 
-## 2. Push main (this makes CI go red)
+2. Push this directory:
+
+   ```bash
+   cd demo-repo
+   git init -b main
+   git add .
+   git commit -m "Add uploader with retry"
+   git remote add origin https://github.com/<you>/pulse-demo.git
+   git push -u origin main
+   ```
+
+   Or, from the repository root, without putting a token in a remote URL:
+
+   ```bash
+   python push_demo.py <you>/pulse-demo
+   ```
+
+   `push_demo.py` uses the Git Data API and reads `GITHUB_TOKEN` from `.env`.
+   Note that writing `.github/workflows/` through the API needs the `workflow`
+   token scope — without it GitHub returns a misleading `404`.
+
+3. Point Pulse at it in `.env`:
+
+   ```
+   GITHUB_REPO=<you>/pulse-demo
+   ```
+
+## Running the demo
+
+Leave the repo **green**, start Pulse, then break it live — that way the
+recording shows the transition rather than opening on an existing failure.
 
 ```bash
-cd demo-repo
-git init -b main
-git add .
-git commit -m "Add uploader with retry"
-git remote add origin https://github.com/<you>/pulse-demo.git
-git push -u origin main
+python run.py --interval 20      # baselines existing failures, then watches
+# edit app.py: max_tries=3  ->  max_tries=2
+python push_demo.py <you>/pulse-demo
 ```
 
-Actions runs and fails. That alone powers `why did CI fail?`
+Then watch the log: `new failure` → `cold-emailed` → `notified`.
 
-## 3. Open a PR (so `investigate PR #1` also works)
-
-```bash
-git checkout -b fix/declare-backoff
-printf 'backoff>=2.2\n' >> requirements.txt
-git commit -am "Declare backoff dependency"
-git push -u origin fix/declare-backoff
-```
-
-Open the PR on GitHub. It becomes **PR #1**, and its CI goes *green* — which is the
-demo's closing beat: Pulse diagnosed the red build, you applied its suggested fix,
-CI recovered.
-
-For a red PR instead, push a branch that changes `app.py` without touching
-`requirements.txt`.
-
-## 4. Point Pulse at it
-
-In the Pulse `.env`:
-
-```
-GITHUB_REPO=<you>/pulse-demo
-```
+See [`../demo-assets/video-script.md`](../demo-assets/video-script.md) for
+timings and a shot list.
