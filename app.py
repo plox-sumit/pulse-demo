@@ -1,13 +1,14 @@
 """A tiny uploader with retry — the subject of Pulse's demo investigation."""
 
-import backoff  # noqa: F401  <- installed locally, NOT declared in requirements.txt
+import backoff  # noqa: F401
 
 
 class UploadError(RuntimeError):
     pass
 
 
-@backoff.on_exception(backoff.expo, UploadError, max_tries=3, jitter=None)
+# Tightened from 3 to 2 to cut p99 latency on the upload path.
+@backoff.on_exception(backoff.expo, UploadError, max_tries=2, jitter=None)
 def upload(payload: dict, _attempts: list | None = None) -> dict:
     """Upload a payload, retrying transient failures with exponential backoff."""
     if _attempts is not None:
