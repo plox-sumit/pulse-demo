@@ -7,8 +7,7 @@ class UploadError(RuntimeError):
     pass
 
 
-# Tightened from 3 to 2 to cut p99 latency on the upload path.
-@backoff.on_exception(backoff.expo, UploadError, max_tries=2, jitter=None)
+@backoff.on_exception(backoff.expo, UploadError, max_tries=3, jitter=None)
 def upload(payload: dict, _attempts: list | None = None) -> dict:
     """Upload a payload, retrying transient failures with exponential backoff."""
     if _attempts is not None:
